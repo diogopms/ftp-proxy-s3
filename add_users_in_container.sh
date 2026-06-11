@@ -1,65 +1,48 @@
-#!/bin/bash
-# This script will update the env.list file (file containing USERS environrment variable) and add the new users if there are any.
+#!/usr/bin/env bash
+#
+# Live-reload loop: periodically pulls the USERS list from the config bucket and
+# reconciles accounts (creating users, updating passwords) plus repairs file
+# permissions. The actual account logic is shared with users.sh.
+set -euo pipefail
 
-FTP_DIRECTORY="/home/aws/s3bucket/ftp-users"
-CONFIG_FILE="env.list" # May need to modify config file name to reflect future changes in env file location/name
-SLEEP_DURATION=60
-# Change theses next two variables to set different permissions for files/directories
-# These were default from vsftpd so change accordingly if necessary
-FILE_PERMISSIONS=644
-DIRECTORY_PERMISSIONS=750
+# shellcheck source=users.sh
+source /usr/local/users.sh
 
-add_users() {
-  aws s3 cp s3://$CONFIG_BUCKET/$CONFIG_FILE ~/$CONFIG_FILE
-  USERS=$(cat ~/"$CONFIG_FILE" | grep USERS | cut -d '=' -f2)
+CONFIG_FILE="${CONFIG_FILE:-env.list}"
+SLEEP_DURATION="${SLEEP_DURATION:-60}"
 
-  for u in $USERS; do
-    read username passwd <<< $(echo $u | sed 's/:/ /g')
+# Download the config file and provision every user it lists.
+reconcile_users() {
+  local tmp
+  tmp="$(mktemp)"
+  if ! aws s3 cp "s3://$CONFIG_BUCKET/$CONFIG_FILE" "$tmp" >/dev/null 2>&1; then
+    log "Could not download s3://$CONFIG_BUCKET/$CONFIG_FILE; skipping this cycle"
+    rm -f "$tmp"
+    return 0
+  fi
 
-    # If account exists set password again
-    # In cases where password changes in env file
-    if getent passwd "$username" >/dev/null 2>&1; then
-      echo $u | chpasswd -e
+  local users_line
+  users_line="$(grep -E '^USERS=' "$tmp" | head -n1 | cut -d= -f2- || true)"
+  rm -f "$tmp"
 
-      # Fix for issue when pulling files that were uploaded directly to S3 (through aws web console)
-      # Permissions when uploaded directly through S3 Web client were set as:
-      # 000 root:root
-      # This would not allow ftp users to read the files
-
-      # Search for files and directories not owned correctly
-      find "$FTP_DIRECTORY/$username/files/" -mindepth 1 \( \! -user "$username" \! -group "$username" \) -print0 | xargs -0 -r chown "$username:$username"
-
-      # Search for files with incorrect permissions
-      find "$FTP_DIRECTORY/$username/files/" -mindepth 1 -type f \! -perm "$FILE_PERMISSIONS" -print0 | xargs -0 -r chmod "$FILE_PERMISSIONS"
-
-      # Search for directories with incorrect permissions
-      find "$FTP_DIRECTORY/$username/files/" -mindepth 1 -type d \! -perm "$DIRECTORY_PERMISSIONS" -print0 | xargs -0 -r chmod "$DIRECTORY_PERMISSIONS"
-
-      # Search for .ssh folders and authorized_keys files with incorrect permissions/ownership
-      find "$FTP_DIRECTORY/$username/.ssh" -mindepth 1 -type d \! -perm 700 -print0 | xargs -0 -r chmod 700
-      find "$FTP_DIRECTORY/$username/.ssh" -mindepth 1 -type d \! -user "$username" -print0 | xargs -0 -r chown "$username"
-
-      find "$FTP_DIRECTORY/$username/.ssh/authorized_keys" -mindepth 1 -type f \! -perm 600 -print0 | xargs -0 -r chmod 600
-      find "$FTP_DIRECTORY/$username/.ssh/authorized_keys" -mindepth 1 -type f \! -user "$username" -print0 | xargs -0 -r chown "$username"
-    fi
-
-    # If user account doesn't exist create it
-    if ! getent passwd "$username" >/dev/null 2>&1; then
-      useradd -d "$FTP_DIRECTORY/$username" -s /usr/sbin/nologin $username
-      usermod -G ftpaccess $username
-
-      mkdir -p "$FTP_DIRECTORY/$username"
-      chown root:ftpaccess "$FTP_DIRECTORY/$username"
-      chmod 750 "$FTP_DIRECTORY/$username"
-
-      mkdir -p "$FTP_DIRECTORY/$username/files"
-      chown $username:ftpaccess "$FTP_DIRECTORY/$username/files"
-      chmod 750 "$FTP_DIRECTORY/$username/files"
-    fi
+  local entry username passwd
+  # shellcheck disable=SC2086 # intentional word-splitting on the USERS string
+  for entry in $users_line; do
+    username="${entry%%:*}"
+    passwd="${entry#*:}"
+    provision_user "$username" "$passwd" || log "Failed to provision '$username'"
+    fix_user_permissions "$username" || log "Failed to fix permissions for '$username'"
   done
 }
 
+if [[ -z "${CONFIG_BUCKET:-}" ]]; then
+  log "CONFIG_BUCKET is not set; live user reload is disabled."
+  # Stay alive (supervised) without busy-looping.
+  exec sleep infinity
+fi
+
+ensure_base
 while true; do
-  add_users
-  sleep $SLEEP_DURATION
+  reconcile_users || log "Reconcile cycle failed; will retry"
+  sleep "$SLEEP_DURATION"
 done

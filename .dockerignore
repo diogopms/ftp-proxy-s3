@@ -1,0 +1,9 @@
+# Keep secrets and local-only files out of the build context
+env.list
+*.env
+.env*
+.git
+.github
+*.md
+docker-compose*.yml
+LICENSE

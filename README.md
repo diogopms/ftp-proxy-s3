@@ -1,42 +1,158 @@
-# FTP Proxy S3
+# ftp-proxy-s3
 
-An ftp/sftp server using s3fs to mount an external s3 bucket as ftp/sftp storage.
+[![CI](https://github.com/diogopms/ftp-proxy-s3/actions/workflows/ci.yml/badge.svg)](https://github.com/diogopms/ftp-proxy-s3/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Usage
+An FTP/SFTP server that exposes an **Amazon S3 bucket** as its storage backend.
+The bucket is mounted with [`s3fs-fuse`](https://github.com/s3fs-fuse/s3fs-fuse)
+and served over FTP/SFTP by [`vsftpd`](https://security.appspot.com/vsftpd.html),
+all supervised by [`supervisord`](http://supervisord.org/) inside a single
+Docker container.
 
-To run:
+It is handy when a partner or device can only talk FTP/SFTP, but you want the
+data to land in S3.
 
-1. Replace `env.list.example` file with a real `env.list` file with correct variables filled in.
-    - Add users to `USERS` environment variable. These should be listed in the form `username:hashedpassword`, each separated by a space.
-     - Passwords for those users should be hashed. There are several ways to hash a user password. A common way is to execute a command like the following: `openssl passwd -crypt {your_password}`. Substitute `{your_password}` with the one you want to hash.
-     - You may also use non-hashed passwords if storing passwords in plaintext is fine. To do this, change line ` echo $u | chpasswd -e ` => ` echo $u | chpasswd ` in the `users.sh` file (line #24).
-    - Specify the S3 buckets were the files (`FTP_BUCKET`) and configs (`CONFIG_BUCKET`) will be stored.
-    - If you are running this container inside an AWS EC2 Instance with an assigned IAM_ROLE, then specify its name in the `IAM_ROLE` environment variable.
-    - If you do not have an IAM_ROLE attached to your EC2 Instance or wherever you are running this, then you have to specify the AWS credentials that will be used to access S3. These are the `AWS_ACCESS_KEY_ID` and the `AWS_SECRET_KEY_ID` keys.
+## How it works
 
-2. If you have changed other files aside the `env.list` file, then you have to build the docker container using:
+```
+              ┌──────────────────────── Docker container ───────────────────────┐
+              │  supervisord                                                     │
+  FTP/SFTP    │   ├─ s3-fuse.sh ──── mounts s3://$FTP_BUCKET → /home/aws/s3bucket │
+  client ───► │   ├─ vsftpd ──────── serves /home/aws/s3bucket/ftp-users         │ ───► S3
+  :21 + PASV  │   └─ add_users… ──── polls s3://$CONFIG_BUCKET/env.list for users │
+              └──────────────────────────────────────────────────────────────────┘
+```
 
-    - `docker build --rm -t <docker/tag> path/to/dockerfile/folder`
+- Each FTP user gets a chrooted home under `ftp-users/<user>/files`.
+- Users are defined in the `USERS` environment variable and can be live-reloaded
+  from a config bucket (see [Live reload](#live-reloading-users)).
 
-3. Then after building the container (if necessary), run using:
+## Quick start
 
-    - `docker run --rm -p 21:21  -p 30000-30100:30000-30100 --name <name> --cap-add SYS_ADMIN --device /dev/fuse --env-file env.list  <docker/tag>`
-    - If you would like the docker to restart after reboot then use:
-        * `docker run --restart=always -p 21:21 -p 30000-30100:30000-30100 --name <name> --cap-add SYS_ADMIN --device /dev/fuse --env-file env.list <docker/tag>`
-    - If `env.list` file is named differently change accordingly.
-    - If you don't want to use the cap-add and device options you could also just use the privileged option instead:
-        * `docker run --restart=always -p 21:21 -p 30000-30100:30000-30100 --privileged --env-file env.list <docker/tag>`
+### 1. Configure
 
-## Environment Variables
+Copy the example environment file and fill it in:
 
-1. ` USERS ` = List of users to add to the ftp/sftp server. Listed in the form username:hashedpassword, each separated by a space.
-2. ` FTP_BUCKET ` = S3 bucket where ftp/sftp users data will be stored.
-3. ` CONFIG_BUCKET ` = S3 bucket where the config data (env.list file) will be stored.
-4. ` IAM_ROLE ` = name of role account linked to EC2 instance the container is running in.
-5. ` PASV_ADDRESS ` =
+```bash
+cp env.list.example env.list
+```
 
-### Optional Environment Variables
-These two environment variables only need to be set if there is no linked IAM role to the EC2 instance.
+See [Environment variables](#environment-variables) for every option.
 
-1. ` AWS_ACCESS_KEY_ID ` = IAM user account access key.
-2. ` AWS_SECRET_ACCESS_KEY ` = IAM user account secret access key.
+### 2. Run
+
+Pull the published image from GHCR (or build it yourself — see
+[Building](#building-locally)):
+
+```bash
+docker run --rm \
+  -p 21:21 \
+  -p 30000-30100:30000-30100 \
+  --env-file env.list \
+  --cap-add SYS_ADMIN \
+  --device /dev/fuse \
+  --security-opt apparmor:unconfined \
+  --name ftp-proxy-s3 \
+  ghcr.io/diogopms/ftp-proxy-s3:latest
+```
+
+- `--cap-add SYS_ADMIN --device /dev/fuse` let `s3fs` create the FUSE mount.
+- `--security-opt apparmor:unconfined` is required on hosts whose default
+  AppArmor profile blocks FUSE mounts (see [Troubleshooting](#troubleshooting)).
+- To restart automatically after a host reboot, add `--restart=always`.
+
+> If you prefer not to grant individual capabilities you can use
+> `--privileged` instead of `--cap-add`/`--device`/`--security-opt`, but that is
+> broader than necessary.
+
+### Docker Compose
+
+A ready-to-edit [`docker-compose.yml`](docker-compose.yml) is included:
+
+```bash
+docker compose up -d
+```
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `FTP_BUCKET` | **yes** | S3 bucket mounted as the FTP/SFTP storage. |
+| `USERS` | **yes** | Space-separated `username:password` pairs (see [Users & passwords](#users--passwords)). |
+| `PASV_ADDRESS` | yes¹ | Public IP/host advertised for FTP passive mode. |
+| `CONFIG_BUCKET` | no | Bucket holding an `env.list` file used to [live-reload users](#live-reloading-users). |
+| `IAM_ROLE` | no² | Name of the EC2 instance IAM role used to access S3. |
+| `AWS_ACCESS_KEY_ID` | no² | AWS access key (only when `IAM_ROLE` is not used). |
+| `AWS_SECRET_ACCESS_KEY` | no² | AWS secret key (only when `IAM_ROLE` is not used). |
+
+¹ `PASV_ADDRESS` is auto-detected from the EC2 instance metadata when running on
+EC2; otherwise it must be set explicitly.
+
+² Provide **either** an `IAM_ROLE` **or** an `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` pair.
+
+## Users & passwords
+
+`USERS` is a space-separated list of `username:password` entries, for example:
+
+```
+USERS=alice:$1$xyz... bob:$1$abc...
+```
+
+Passwords are expected to be **hashed** (they are fed to `chpasswd -e`). Generate
+a hash with, for example:
+
+```bash
+openssl passwd -1 'your-password'      # MD5-crypt
+# or
+mkpasswd --method=sha-512 'your-password'
+```
+
+If you would rather store plaintext passwords, drop the `-e` flag from the
+`chpasswd` call in `users.sh`.
+
+### SFTP key access
+
+Each user also gets a `~/.ssh/authorized_keys` file provisioned with the right
+permissions, so public-key SFTP access can be used in addition to passwords.
+
+## Live-reloading users
+
+If `CONFIG_BUCKET` is set, the container periodically downloads
+`s3://$CONFIG_BUCKET/env.list` and reconciles the user list — adding new users
+and updating passwords without a restart. It also repairs ownership/permissions
+on files that were uploaded to the bucket directly (e.g. through the S3 console),
+which would otherwise be unreadable by the FTP user.
+
+## Building locally
+
+```bash
+docker build -t ftp-proxy-s3 .
+```
+
+The image is based on `debian:bookworm-slim` and installs `s3fs`, `vsftpd`,
+`supervisor` and `awscli` from the Debian repositories.
+
+## Troubleshooting
+
+- **`s3fs` fails to mount / container exits immediately.** The host's AppArmor
+  profile is likely blocking the FUSE mount. Run with
+  `--security-opt apparmor:unconfined` (already shown above). Make sure
+  `--cap-add SYS_ADMIN` and `--device /dev/fuse` are present too.
+- **Mount point not empty.** `s3fs` is mounted with the `nonempty` option so it
+  can mount over a directory that already contains files.
+- **Passive transfers hang / time out.** Ensure the `30000-30100` range is
+  published (`-p 30000-30100:30000-30100`) and that `PASV_ADDRESS` is the
+  address the client can actually reach.
+
+## Releases
+
+Versioned images are published to the GitHub Container Registry:
+`ghcr.io/diogopms/ftp-proxy-s3`. Releases are cut automatically once a day from
+`master` using [semantic-release](https://semantic-release.gitbook.io/) based on
+[Conventional Commits](https://www.conventionalcommits.org/); see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE) © Diogo Serrano

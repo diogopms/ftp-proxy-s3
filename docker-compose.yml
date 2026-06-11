@@ -1,0 +1,20 @@
+services:
+  ftp-proxy-s3:
+    # Use the published image, or comment `image` and uncomment `build` to build
+    # locally from this repository.
+    image: ghcr.io/diogopms/ftp-proxy-s3:latest
+    # build: .
+    container_name: ftp-proxy-s3
+    restart: always
+    env_file:
+      - env.list
+    ports:
+      - "21:21"
+      - "30000-30100:30000-30100"
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      # Required on hosts whose default AppArmor profile blocks FUSE mounts.
+      - apparmor:unconfined

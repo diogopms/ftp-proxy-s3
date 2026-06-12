@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+input="$(cat)"
+echo "chpasswd $* <<< $input" >> "$STUB_LOG"
+exit 0

@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
  && echo "/usr/sbin/nologin" >> /etc/shells
 
 # Application scripts
-COPY ["s3-fuse.sh", "users.sh", "add_users_in_container.sh", "/usr/local/"]
-RUN chmod +x /usr/local/s3-fuse.sh /usr/local/users.sh /usr/local/add_users_in_container.sh
+COPY ["s3-fuse.sh", "start-vsftpd.sh", "users.sh", "add_users_in_container.sh", "/usr/local/"]
+RUN chmod +x /usr/local/s3-fuse.sh /usr/local/start-vsftpd.sh /usr/local/users.sh /usr/local/add_users_in_container.sh
 
 # Service configuration
 COPY vsftpd.conf /etc/vsftpd.conf

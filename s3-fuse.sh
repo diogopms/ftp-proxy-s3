@@ -8,7 +8,15 @@ MOUNT_POINT="${MOUNT_POINT:-/home/aws/s3bucket}"
 VSFTPD_CONF="${VSFTPD_CONF:-/etc/vsftpd.conf}"
 
 log() { printf '[s3-fuse] %s\n' "$*"; }
-die() { log "$*"; exit 1; }
+
+# Fatal error: log, then bring the whole container down. Otherwise supervisord
+# would keep vsftpd running over an unmounted/empty directory. With
+# `--restart=always` the container then restarts and retries cleanly.
+die() {
+  log "$*"
+  supervisorctl shutdown >/dev/null 2>&1 || kill -s TERM 1 2>/dev/null || true
+  exit 1
+}
 
 # --- required configuration -------------------------------------------------
 [[ -n "${FTP_BUCKET:-}" ]] || die "FTP_BUCKET is not set. Aborting!"

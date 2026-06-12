@@ -1,0 +1,6 @@
+failure-threshold: warning
+ignored:
+  # Pinning every apt package version is intentionally avoided: this image is
+  # rebuilt regularly (see the daily release workflow) and should pick up the
+  # latest Debian security updates rather than freeze to a fixed version.
+  - DL3008

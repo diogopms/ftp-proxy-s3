@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
       curl \
       fuse \
       s3fs \
+      ssl-cert \
       supervisor \
       vsftpd \
  && rm -rf /var/lib/apt/lists/* \

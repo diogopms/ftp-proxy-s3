@@ -133,6 +133,20 @@ docker build -t ftp-proxy-s3 .
 The image is based on `debian:bookworm-slim` and installs `s3fs`, `vsftpd`,
 `supervisor` and `awscli` from the Debian repositories.
 
+## Encryption (FTPS)
+
+The server offers **FTPS** (explicit TLS over FTP) but does not require it, so
+existing plain-FTP and SFTP clients keep working. The image ships a self-signed
+"snakeoil" certificate as a placeholder.
+
+- **Use a real certificate** in production by bind-mounting it over the defaults:
+  ```bash
+  -v /path/fullchain.pem:/etc/ssl/certs/ssl-cert-snakeoil.pem:ro \
+  -v /path/privkey.pem:/etc/ssl/private/ssl-cert-snakeoil.key:ro
+  ```
+- **To require encryption**, set `force_local_logins_ssl=YES` and
+  `force_local_data_ssl=YES` in `vsftpd.conf` and rebuild.
+
 ## Troubleshooting
 
 - **`s3fs` fails to mount / container exits immediately.** The host's AppArmor

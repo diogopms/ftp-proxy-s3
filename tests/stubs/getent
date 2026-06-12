@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+echo "getent $*" >> "$STUB_LOG"
+db="${1:-}"; key="${2:-}"
+case "$db" in
+  group)  case " ${STUB_EXISTING_GROUPS:-} " in *" $key "*) exit 0;; esac ;;
+  passwd) case " ${STUB_EXISTING_USERS:-} "  in *" $key "*) exit 0;; esac ;;
+esac
+exit 2

@@ -4,15 +4,19 @@ Thanks for taking the time to contribute!
 
 ## Development
 
-- The application is a set of Bash scripts plus `vsftpd`/`supervisord` config,
-  packaged in a Docker image.
-- Lint before pushing:
-  - `shellcheck *.sh`
-  - `hadolint Dockerfile`
-- Build to validate: `docker build -t ftp-proxy-s3 .`
+The application is a set of Bash scripts plus `vsftpd`/`supervisord` config,
+packaged in a Docker image. A `Makefile` wraps the common tasks (each runs in
+Docker, so the only requirement is Docker itself):
 
-CI runs ShellCheck, Hadolint, an image build and a Trivy scan on every pull
-request.
+```bash
+make help    # list targets
+make lint    # shellcheck + hadolint
+make test    # run the bats suite
+make build   # build the image
+```
+
+CI runs ShellCheck, Hadolint, the bats tests, an image build and a Trivy scan on
+every pull request.
 
 ## Commit messages — Conventional Commits
 

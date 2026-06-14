@@ -118,10 +118,10 @@ permissions, so public-key SFTP access can be used in addition to passwords.
 
 ## Live-reloading users
 
-If `CONFIG_BUCKET` is set, the container periodically downloads
-`s3://$CONFIG_BUCKET/env.list` and reconciles the user list — adding new users
-and updating passwords without a restart. It also repairs ownership/permissions
-on files that were uploaded to the bucket directly (e.g. through the S3 console),
+If `CONFIG_BUCKET` is set, the container mounts it read-only and periodically
+reads `env.list` from it, reconciling the user list — adding new users and
+updating passwords without a restart. It also repairs ownership/permissions on
+files that were uploaded to the bucket directly (e.g. through the S3 console),
 which would otherwise be unreadable by the FTP user.
 
 ## Building locally
@@ -130,8 +130,8 @@ which would otherwise be unreadable by the FTP user.
 docker build -t ftp-proxy-s3 .
 ```
 
-The image is based on `debian:bookworm-slim` and installs `s3fs`, `vsftpd`,
-`supervisor` and `awscli` from the Debian repositories.
+The image is based on `debian:bookworm-slim` and installs `s3fs`, `vsftpd` and
+`supervisor` from the Debian repositories.
 
 ## Encryption (FTPS)
 

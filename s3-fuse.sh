@@ -5,6 +5,7 @@
 set -euo pipefail
 
 MOUNT_POINT="${MOUNT_POINT:-/home/aws/s3bucket}"
+CONFIG_MOUNT="${CONFIG_MOUNT:-/home/aws/config}"
 VSFTPD_CONF="${VSFTPD_CONF:-/etc/vsftpd.conf}"
 
 log() { printf '[s3-fuse] %s\n' "$*"; }
@@ -82,6 +83,19 @@ fi
 
 if command -v mountpoint >/dev/null 2>&1 && ! mountpoint -q "$MOUNT_POINT"; then
   die "'$MOUNT_POINT' is not mounted after s3fs. Aborting!"
+fi
+
+# Mount the config bucket read-only (when configured) so the live-reload loop
+# can read env.list directly from the filesystem, without a separate AWS client.
+# A short stat-cache keeps it reasonably responsive to changes.
+if [[ -n "${CONFIG_BUCKET:-}" ]]; then
+  config_opts=(-o ro -o stat_cache_expire=30)
+  [[ -n "${IAM_ROLE:-}" ]] && config_opts+=(-o iam_role="$IAM_ROLE")
+  mkdir -p "$CONFIG_MOUNT"
+  log "Mounting s3://$CONFIG_BUCKET at $CONFIG_MOUNT (read-only)"
+  if ! s3fs "$CONFIG_BUCKET" "$CONFIG_MOUNT" "${config_opts[@]}"; then
+    die "s3fs failed to mount config bucket '$CONFIG_BUCKET'. Aborting!"
+  fi
 fi
 
 # Initial user provisioning.

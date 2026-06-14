@@ -13,7 +13,6 @@ LABEL maintainer="Diogo <info@diogoserrano.com>" \
 # (and its CVEs) from the final image.
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install --no-install-recommends -y \
-      awscli \
       ca-certificates \
       curl \
       fuse \

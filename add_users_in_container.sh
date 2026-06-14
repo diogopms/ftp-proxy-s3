@@ -6,24 +6,23 @@
 set -euo pipefail
 
 # shellcheck source=users.sh
-source /usr/local/users.sh
+source "${USERS_LIB:-/usr/local/users.sh}"
 
+CONFIG_MOUNT="${CONFIG_MOUNT:-/home/aws/config}"
 CONFIG_FILE="${CONFIG_FILE:-env.list}"
+CONFIG_PATH="$CONFIG_MOUNT/$CONFIG_FILE"
 SLEEP_DURATION="${SLEEP_DURATION:-60}"
 
-# Download the config file and provision every user it lists.
+# Read the config file (mounted read-only from the config bucket by s3-fuse.sh)
+# and provision every user it lists.
 reconcile_users() {
-  local tmp
-  tmp="$(mktemp)"
-  if ! aws s3 cp "s3://$CONFIG_BUCKET/$CONFIG_FILE" "$tmp" >/dev/null 2>&1; then
-    log "Could not download s3://$CONFIG_BUCKET/$CONFIG_FILE; skipping this cycle"
-    rm -f "$tmp"
+  if [[ ! -r "$CONFIG_PATH" ]]; then
+    log "Config file $CONFIG_PATH is not readable yet; skipping this cycle"
     return 0
   fi
 
   local users_line
-  users_line="$(grep -E '^USERS=' "$tmp" | head -n1 | cut -d= -f2- || true)"
-  rm -f "$tmp"
+  users_line="$(grep -E '^USERS=' "$CONFIG_PATH" | head -n1 | cut -d= -f2- || true)"
 
   local entry username passwd
   # shellcheck disable=SC2086 # intentional word-splitting on the USERS string
@@ -35,14 +34,18 @@ reconcile_users() {
   done
 }
 
-if [[ -z "${CONFIG_BUCKET:-}" ]]; then
-  log "CONFIG_BUCKET is not set; live user reload is disabled."
-  # Stay alive (supervised) without busy-looping.
-  exec sleep infinity
-fi
+# The reconcile loop only runs when executed directly; sourcing this file (e.g.
+# from the test suite) just defines reconcile_users.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  if [[ -z "${CONFIG_BUCKET:-}" ]]; then
+    log "CONFIG_BUCKET is not set; live user reload is disabled."
+    # Stay alive (supervised) without busy-looping.
+    exec sleep infinity
+  fi
 
-ensure_base
-while true; do
-  reconcile_users || log "Reconcile cycle failed; will retry"
-  sleep "$SLEEP_DURATION"
-done
+  ensure_base
+  while true; do
+    reconcile_users || log "Reconcile cycle failed; will retry"
+    sleep "$SLEEP_DURATION"
+  done
+fi

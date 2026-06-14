@@ -41,6 +41,10 @@ Common types and how they affect the next version:
 A breaking change — either `type!: ...` or a `BREAKING CHANGE:` footer — triggers
 a **major** release.
 
+A CI check (`PR title`) validates that every pull-request title is a valid
+Conventional Commit. **Squash-merge** pull requests so the title becomes the
+commit subject on `master`; that is what the release automation reads.
+
 ## Releases
 
 Releases are not cut on merge. A scheduled workflow runs once a day; when there

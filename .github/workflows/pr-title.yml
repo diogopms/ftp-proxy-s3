@@ -1,0 +1,33 @@
+name: PR title
+
+# Releases are generated from commit history with semantic-release, and PRs are
+# expected to be squash-merged using the PR title as the commit subject. This
+# check enforces that the title is a valid Conventional Commit so the release
+# automation can derive the next version. See CONTRIBUTING.md.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            build
+            ci
+            docs
+            test
+            chore
+            revert

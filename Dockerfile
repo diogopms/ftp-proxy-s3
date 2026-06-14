@@ -37,8 +37,10 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # 21 = control channel, 30000-30100 = passive data channel range
 EXPOSE 21 30000-30100
 
-# Consider the container healthy only while vsftpd is accepting connections.
+# Healthy while vsftpd answers on the control port with its 220 greeting.
+# (A plain `curl ftp://` would attempt an anonymous login, which is disabled, so
+# it returns failure even when the server is fine — hence the raw banner check.)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS --max-time 4 ftp://127.0.0.1:21/ >/dev/null 2>&1 || exit 1
+  CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/21 && read -t 4 -u 3 line && [[ $line == 220* ]]"]
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

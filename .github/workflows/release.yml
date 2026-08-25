@@ -1,12 +1,12 @@
 name: Release
 
-# Releases are NOT cut on merge to master — pushes only run CI.
+# Releases are NOT cut on merge to master - pushes to master only run CI (ci.yml).
 # Instead this job runs on a schedule (monthly): it determines the next
 # version from the Conventional Commits since the last tag. Only if there is a
 # release-worthy change (a feat/fix/breaking-change commit) does it create the
 # git tag, build and push the production Docker image to the GitHub Container
 # Registry (ghcr.io), and cut a GitHub Release. If nothing releasable has landed
-# since the last tag, `new_version` is empty and every release step is skipped —
+# since the last tag, `new_version` is empty and every release step is skipped -
 # a no-op run.
 #
 # To FORCE a release (e.g. after a docs-only or chore change), trigger it
